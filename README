@@ -1,0 +1,284 @@
+This was my 2001 IOCCC submission. I resubmitted it in 2002 with some
+bugfixes. Sadly, it wasn't a winner either year. If you are tempted
+to use this "for real" (sounds like a clever idea, right?) please be
+sure to read the "How it works" section below first!
+
+
+    Usage:
+     prog <regular expression>
+
+
+    Synopsis:
+     This utility converts a regular expression into an equivalent
+     sendmail rule.
+
+
+    Examples:
+     $ ./prog 'a'
+     S3
+     Ra		$@<MATCH>
+     R$*	$@<NOMATCH>
+     $ ./prog '(questions?|entry)@ioccc\.org' > out.cf
+     $ ./prog '[abcdefghijklmnopqrstuvwxyz]{1,3}' > out.cf
+     $ wc -l out.cf
+        18280 out.cf
+     $ ./prog 'a{2,1}'
+     error
+     $ ./prog '(((asdf){1000}){1000}){1000}'
+     error
+     $ ./prog '((s|t|o|p)?[doing]{1,2})[that]' > out.cf
+     $ grep '<M' out.cf | tail -1 | sed -e 's/R\(.\{4\}\).*/\1/'
+
+
+    Audience:
+     This document assumes at least rudimentary understanding of both
+     regular expressions and sendmail rewriting rules. Pointers to
+     useful books are below, in the "References" section.
+
+
+    Impetus:
+     Considering that e-mail on the internet owes many successes and most
+     failures to the fearful and powerful Sendmail rewriting language,
+     very few people can easily write (and fewer understand) complicated
+     Sendmail rules.
+
+     I spent several years as a sendmail administrator, and many were the
+     nights I woke screaming from dreams of endless, marching tokens. In
+     the end, sendmail defeated me, and I left the admin life behind to
+     become a programmer. But the nightmares have continued to this day.
+
+     It is my hope that this project will finally end those nightmares,
+     and perhaps spare other sysadmins the same fate. With this utility,
+     a sysadmin can easily generate complex sendmail rules using the
+     slightly less twisted pattern matching language of regular
+     expressions.
+
+
+    Input:
+     The regular expressions described here and used in the program are
+     based on POSIX 1003.2 'extended' regular expressions, though for
+     various reasons they are somewhat different. To differentiate from
+     POSIX-defined regular expressions, I will call them SOREs (Sendmail
+     Obstructed Regular Expressions).
+
+     Here is a BNF-style description of SOREs:
+
+     sore        ::= <branch>
+                   | <sore> "|" <branch>
+     branch      ::= <piece>
+                   | <branch> <piece>
+     piece       ::= <atom>
+                   | <atom> <quantifier>
+     atom        ::= "(" ")"
+                   | "(" <sore> ")"
+                   | <bracket>
+                   | "."
+                   | <normal_char>
+                   | "\" <re_char>
+                   | "\" <normal_char>
+     quantifier  ::= "?"
+                   | "{" <number> "}"
+                   | "{" <number> "," <number> "}"
+     bracket     ::= "[" <blist> "]"
+                   | "[" "^" <blist> "]"
+     blist       ::= <clist>
+                   | "]" <clist>
+     clist       ::= <char>
+                   | <clist> <char>
+     number      ::= <digit>
+                   | <number> <digit>
+     digit       ::= "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"
+     char        ::= <re_char>
+                   | <normal_char>
+     re_char     ::= "." "[" "(" ")" "|" "?" "{" "\"
+     normal_char ::= %d1-9
+                   | %d11-12
+                   | %d14-39
+                   | %d42-45
+                   | %d47-62
+                   | %d64-90
+                   | %d94-122
+                   | %d125-126
+
+     Now a brief explanation of the differences between SOREs and POSIX
+     extended regular expressions:
+
+      . The "*", "+", and "{n,}" quantifiers were removed because, given
+        the way this utility works, infinite upper bounds cannot be
+        supported.
+      . Ranges in bracket expressions were removed because, as the
+        standard mentions, they are inherently non portable and inherently
+        unneeded.
+      . Collating elements, equivalence classes, character classes and
+        the word-boundary matching tokens in bracket expressions were
+        removed for space considerations.
+      . The character set is restricted to the ASCII set, with the ASCII
+        characters 0, 10 and 13 also disallowed, since this is the
+        character set to which e-mail addresses (and therefore sendmail
+        rules) are bound, according to RFC2822. Disallowed characters cause
+        an error when used as atoms, but may be silently discarded when
+        used in bracket expressions.
+      . Anchoring characters ^ and $ were removed because they would be
+        very misleading. SOREs are ALWAYS anchored at the beginning and
+        end of the string.
+      . The RE_DUP_MAX limit on upper and lower bounds was removed as a
+        consolation for the removal of infinite upper bounds. Upper and
+        lower bounds are now limited by the size of a signed integer.
+      . A '{' character is special even if it isn't followed by a digit.
+
+
+    Output:
+     If the input is not a valid SORE, the program outputs the string
+     "error", and exits.
+
+     If the program runs out of memory while working, it outputs the
+     string "error" and exits.
+
+     Otherwise, the program prints a sendmail rule (named S3) to its
+     standard output. It is suitable for inclusion in any sendmail.cf
+     configuration file, though of course you should take care to ensure
+     that it does not conflict with a preexisting rule in your
+     configuration file (which it will).
+
+     The sendmail rule generated is called like any other. It will return
+     <MATCH> if the regular expression matched, and <NOMATCH> otherwise.
+     An example call might look like this:
+
+       R$*		$: $>3 $1
+       R<MATCH>		$@ "The regular expression matched"
+       R<NOMATCH>	$@ "The regular expression did not match"
+       R$*		$@ "Something went horribly wrong"
+
+     A few quick notes about the output: all sendmail rules are implicitly
+     case insensitive; if your regular expression matches an empty string,
+     the generated rule will cause sendmail to warn about "null LHS"
+     (harmless, but note that null strings cannot exist in sendmail, so
+     this will never match); remember that all lines are implicitly
+     anchored at the front and the back.
+
+
+    How it works:
+     Mapping general-case regular expressions to sendmail rules is not
+     possible, because sendmail implicitly tokenizes the workspace based
+     on a set of tokenizing characters, and only allows matches against
+     whole tokens. So while it is tempting to think that a.*b is similar
+     to a$*b, they're nothing alike (the sendmail rule will not even match
+     "ab", because "ab" is a single token and a$*b is at least three).
+
+     This utility overcomes this fundamental problem by cheating. Rather
+     than try to solve the problem of generalized mapping of regular
+     expressions to sendmail rules, it solves the much easier case of
+     mapping a given SORE to an equivalent sendmail rule. It does this by
+     expanding the SORE into all the possible strings it can match. No
+     kidding. The generated sendmail rule simply tests its input against
+     each possible expansion of a SORE. This pre-expansion is, of course,
+     the reason why infinite upper bounds and optional anchoring had to be
+     removed. All other regular expressions map to a finite - though
+     possibly very, very large - set of fixed strings.
+
+     Another note: the generated sendmail rule is horribly inefficient, of
+     course. They are not intended for use in real live sendmail
+     installations.
+
+     That said, the expansion of regular expressions is pretty
+     interesting. This program builds a set of output strings starting
+     from individual atoms, building outward to pieces, then branches,
+     then whole SOREs. Of course, it means that certain seemingly
+     harmless SOREs can cause the program to work very, very hard -
+     perhaps not completing its task before you kill it. The SORE which
+     describes valid ioccc entry titles is (broken for clarity):
+
+       [abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_=]\
+       [abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_=+-]\
+       {0,30}
+
+     This SORE would cause the program, given enough computational power
+     and memory, to eventually output a sendmail rule with this many
+     lines:
+
+        64 * (66^0 + 66^1 + 66^2 + ... + 66^29 + 66^30) + 2
+      = 250685156352191039088844871322112287912968193435810664386
+
+
+    Testing:
+     For those without the time or inclination to learn how to debug
+     sendmail rules, the info section contains a simple wrapper script
+     'testcf.sh' which should work with little or no modification -- though
+     there will be warnings -- if you're on a system that has sendmail. To
+     use it, follow these steps:
+      . make sure your generated sendmail rule goes to a file called
+        'out.cf'
+      . run the testcf.sh script
+      . run the rule with '3 string', where string is the string you want
+        to test.
+
+
+    Code Layout:
+     I decided, out of kindness to the judges, to rigorously adhere to a
+     coding style - no bricks of code in this entry!  Of course, a coding
+     style isn't very useful without documentation, so here you go:
+      . Global symbols are single upper case letter, for easy
+        identification (except main, of course).
+
+      . Global symbols are alphabetized, in order of the size of the code
+        declaring the symbol.
+
+      . Local variables are a single lower case letter, alphabetized in
+        order of declaration.
+
+      . Typedefs get the shortest possible names which can't possibly be
+        confused for either local or global variables.
+
+      . Preprocessor macros have two-character names consisting of a '_'
+        followed by a single lower case letter.
+
+      . No while or for loops are allowed.
+
+      . Indentation is -1 character, with the "deepest" statement in any
+        function aligned with column 0 of the file.
+
+      . No empty lines are permitted.
+
+
+    Obfuscation:
+      . Regular expressions. Sendmail rules. Two terse pattern matching
+        languages which have been compared unfavorably with line noise --
+        in the same program!
+
+      . To my great shock and dismay, following the code standard
+        described above did not make the code easier to read. Sorry!
+
+      . The code is compressed with preprocessor macros to fit under the
+        size limit.
+
+      . The main data type used is a two-element array of void pointers.
+        This is used, in different places, as a linked list of strings, a
+        linked list of linked lists of strings, and an integer.
+
+      . Can you say "pointer to pointer to two-element array of void
+        pointers" ten times fast?
+
+      . Most of the functions are either recursive, or passed to recursive
+        functions as callbacks. This can make tracing the control flow
+        a bit tricky (it also means that you might get a noticeable
+        performance improvement if you crank your compiler's optimizer up
+        all the way).
+
+      . Most of the functions are either too short to grasp what they do
+        in the big picture, or too long to hold in one's head all at once.
+
+      . The basics, of course: characters written as numbers, multipurpose
+        variables, inside-out array lookups (where convenient), pointer
+        arithmetic, no precedence-clarifying punctuation...
+
+
+    References:
+     The following were used in writing this program and explain the two
+     pattern matching languages involved in much more detail.
+
+     Friedl, J. E. F., 1997. Mastering Regular Expressions. O'Reilly.
+
+     Costales, B. and Allman, E., 1997. Sendmail (2nd Edition). O'Reilly.
+
+     Resnick, P., 2001. RFC 2822: Internet Message Format. The Internet
+       Society.
