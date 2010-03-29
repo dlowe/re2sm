@@ -1,0 +1,10 @@
+rule:	2004
+fix:	n
+title:	dlowe
+entry:	0
+date:	__DATE__
+host:	atari.saturn5.com SunOS 5.8 sun4u
+	yak.topica.com FreeBSD 4.7-RELEASE i386
+	thats.unpossible.com Linux 2.2.19 i686
+	poot.topica.com Linux 2.4.16 i686
+	duck.pootpoot.com CYGWIN_NT-5.0 1.3.4(0.47/3/2) i686

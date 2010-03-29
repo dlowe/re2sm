@@ -1,0 +1,6 @@
+S3
+R	$@<MATCH>
+Rabc	$@<MATCH>
+Rdef	$@<MATCH>
+Rghi	$@<MATCH>
+R$*	$@<NOMATCH>
